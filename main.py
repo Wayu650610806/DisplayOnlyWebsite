@@ -7,31 +7,69 @@ from collections import defaultdict
 from pathlib import Path
 import os, time #, secrets, shutil, json
 from influxdb_client.client.exceptions import InfluxDBError
+from contextlib import asynccontextmanager
 
 #------cloud-------- (ถูกคอมเมนต์ออก)
-INFLUX_URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
-INFLUX_TOKEN = "Xttrq8yiXo5GrzZ5p6J2AxzXKYDEniqO9_3fzD_3Zt9fAbalTW1Cbtjt-mjfb9TZuSa-mK8_Iovea-dyIegQ-A=="
-INFLUX_ORG = "KinseiPlant" # <-- ใช้ค่านี้
-INFLUX_BUCKET = "plant_data"
+# INFLUX_URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
+# INFLUX_TOKEN = "Xttrq8yiXo5GrzZ5p6J2AxzXKYDEniqO9_3fzD_3Zt9fAbalTW1Cbtjt-mjfb9TZuSa-mK8_Iovea-dyIegQ-A=="
+# INFLUX_ORG = "KinseiPlant" # <-- ใช้ค่านี้
+# INFLUX_BUCKET = "plant_data"
 
 #-------website---------- (เปิดใช้งานส่วนนี้)
-# INFLUX_URL = os.getenv("INFLUX_URL")
-# INFLUX_TOKEN = os.getenv("INFLUX_TOKEN")
-# INFLUX_ORG = os.getenv("INFLUX_ORG")
-# # ใช้ "plant_data" เป็นค่า default หากไม่ได้ตั้งค่า Environment Variable
-# INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "plant_data") 
+INFLUX_URL = os.getenv("INFLUX_URL")
+INFLUX_TOKEN = os.getenv("INFLUX_TOKEN")
+INFLUX_ORG = os.getenv("INFLUX_ORG")
+# ใช้ "plant_data" เป็นค่า default หากไม่ได้ตั้งค่า Environment Variable
+INFLUX_BUCKET = os.getenv("INFLUX_BUCKET", "plant_data") 
 
 BASE_DIR = Path(__file__).parent # Path ปัจจุบันของ main.py
 
+# --- Global variable สำหรับเก็บ Client และ API ---
+# เราจะกำหนดค่าใน lifespan
+influx_client = None
+influx_query_api = None
 
-# --- สร้าง FastAPI App ---
-app = FastAPI()
+# --- Lifespan: โค้ดที่จะรันตอนแอปเปิดและปิด ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- โค้ดที่รันตอนแอปเริ่ม (Startup) ---
+    global influx_client, influx_query_api
+    if INFLUX_TOKEN:
+        print("Connecting to InfluxDB...")
+        influx_client = influxdb_client.InfluxDBClient(
+            url=INFLUX_URL, 
+            token=INFLUX_TOKEN, 
+            org=INFLUX_ORG
+        )
+        influx_query_api = influx_client.query_api()
+        print("InfluxDB connection established.")
+    else:
+        print("WARNING: INFLUX_TOKEN not set. InfluxDB client not created.")
+    
+    yield # <--- จุดนี้คือจุดที่แอปจะรันตามปกติ
+    
+    # --- โค้ดที่รันตอนแอปปิด (Shutdown) ---
+    if influx_client:
+        print("Closing InfluxDB connection...")
+        influx_client.close()
+        print("InfluxDB connection closed.")
 
 
-# --- ตั้งค่า CORS ---
+# --- สร้าง FastAPI App โดยใช้ Lifespan ---
+app = FastAPI(lifespan=lifespan)
+
+# --- (ตั้งค่า CORS) ---
+# สมมติหน้าเว็บของคุณคือ https://my-plant-app.onrender.com
+origins = [
+    "https://my-plant-app.onrender.com", # URL หน้าเว็บจริงบน Render
+    "http://localhost",
+    "http://localhost:8000", # สำหรับทดสอบ
+    "http://127.0.0.1:8000"  # สำหรับทดสอบ
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins, # <-- ใช้ origins ที่กำหนด
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,37 +91,22 @@ async def read_index():
 # --- 3. API หลักสำหรับดึงข้อมูล Plant ทั้งหมด ---
 @app.get("/api/plants/overview")
 async def get_plants_overview():
-    # ตรวจสอบว่า INFLUX_TOKEN มีค่าหรือไม่
-    if not INFLUX_TOKEN:
-        return JSONResponse({"error": "INFLUX_TOKEN is not set in environment variables."}, status_code=500)
-        
+    # ตรวจสอบว่า Client พร้อมใช้งานหรือไม่ (ถูกสร้างใน lifespan แล้ว)
+    if not influx_query_api:
+        return JSONResponse({"error": "INFLUX_TOKEN is not set or client failed to initialize."}, status_code=500)
+    
     try:
-        # สมมติว่า INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET และ defaultdict ถูก import แล้ว
-        client = influxdb_client.InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
-        query_api = client.query_api()
-        
-        # *** NOTE: ควรใช้ Flux Query ที่ละเอียดกว่านี้ เพื่อดึงข้อมูล plant ทุกรายการออกมา ***
-        # แต่เพื่อการสาธิตการใช้คีย์ผสม จะใช้ Query เดิมก่อน
         query = f'''
             from(bucket: "{INFLUX_BUCKET}")
             |> range(start: -30d)
             |> filter(fn: (r) => r["_measurement"] == "plant_information")
             |> last()  
         '''
-
-        # --- (ทางเลือก) แนะนำให้กรองที่ Query เพื่อประสิทธิภาพที่ดีกว่า ---
-        # ถ้าต้องการกรองที่ต้นทาง (InfluxDB) ซึ่งเร็วกว่า ให้แก้ Query เป็นแบบนี้แทน:
-        # query = f'''
-        #     from(bucket: "{INFLUX_BUCKET}")
-        #     |> range(start: -30d)
-        #     |> filter(fn: (r) => r["_measurement"] == "plant_information")
-        #     |> last()
-        #     |> filter(fn: (r) => exists r.model and r.model != "") // กรองให้มี model และไม่เป็นค่าว่าง
-        # '''
-        # --- จบทางเลือก ---
-
-        tables = query_api.query(query, org=INFLUX_ORG)
-        client.close()
+        
+        # ใช้ query_api ที่สร้างไว้แล้ว (ไม่ต้องสร้างใหม่)
+        tables = influx_query_api.query(query, org=INFLUX_ORG)
+        
+        # ไม่ต้อง client.close() ที่นี่
 
         plant_map = {}
         for table in tables:
@@ -134,39 +157,29 @@ async def get_plants_overview():
         # --- ส่วนสุดท้าย: คืนค่าเป็น List ของ values (ข้อมูล Plant) ---
         return list(plant_map.values()) 
     except Exception as e:
-        # ตรวจสอบว่าได้ import JSONResponse มาแล้ว (เช่น from fastapi.responses import JSONResponse)
         return JSONResponse({"error": str(e)}, status_code=500)
-
 
 # --- 4. ✨ API ใหม่: สำหรับดึงข้อมูลย้อนหลังเพื่อทำกราฟ (ปรับปรุงใหม่) ---
 @app.get("/api/plant/{model_name}/history")
 async def get_plant_history(model_name: str, range_hours: int = 6):
-    """
-    API สำหรับดึงข้อมูลย้อนหลังของ Plant ที่ระบุตามช่วงเวลา (ชั่วโมง)
-    นำกลับเป็น dict grouped by sensor_name:
-      { "sensorA": [ {time, field, value, unit}, ... ], ... }
-    ถ้า point ใน Influx มี tag/column ชื่อ 'unit' จะถูกใส่ลงในแต่ละ record
-    """
-    if not INFLUX_TOKEN:
-        return JSONResponse({"error": "INFLUX_TOKEN is not set in environment variables."}, status_code=500)
+    
+    if not influx_query_api:
+        return JSONResponse({"error": "INFLUX_TOKEN is not set or client failed to initialize."}, status_code=500)
 
     try:
-        client = influxdb_client.InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
-        query_api = client.query_api()
-
         query = f'''
             from(bucket: "{INFLUX_BUCKET}")
-              |> range(start: -{range_hours}h)
-              |> filter(fn: (r) => r["_measurement"] == "plant_information")
-              |> filter(fn: (r) => r["model"] == "{model_name}")
-              |> filter(fn: (r) => r["_field"] == "温度_℃" or r["_field"] == "開度_%")
-              |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)
-              |> yield(name: "results")
+            |> range(start: -{range_hours}h)
+            |> filter(fn: (r) => r["_measurement"] == "plant_information")
+            |> filter(fn: (r) => r["model"] == "{model_name}")
+            |> filter(fn: (r) => r["_field"] == "温度_℃" or r["_field"] == "開度_%")
+            |> aggregateWindow(every: 5m, fn: mean, createEmpty: false)
+            |> yield(name: "results")
         '''
-
-        tables = query_api.query(query, org=INFLUX_ORG)
-        client.close()
-
+        
+        # ใช้ query_api ที่สร้างไว้แล้ว
+        tables = influx_query_api.query(query, org=INFLUX_ORG)
+        
         history_data = defaultdict(list)
         for table in tables:
             for record in table.records:
