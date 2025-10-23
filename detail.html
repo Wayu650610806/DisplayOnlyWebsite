@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>詳細グラフ | 株式会社キンセイ産業</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Inter", "Noto Sans JP", sans-serif;
+      }
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        cursor: pointer;
+        outline: none;
+        border-radius: 9999px;
+        height: 6px;
+        background: #e5e7eb;
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        height: 18px;
+        width: 18px;
+        background-color: #4f46e5;
+        border-radius: 50%;
+        border: none;
+        transition: background-color 0.2s ease-in-out;
+      }
+      input[type="range"]::-moz-range-thumb {
+        height: 18px;
+        width: 18px;
+        background-color: #4f46e5;
+        border-radius: 50%;
+        border: none;
+        transition: background-color 0.2s ease-in-out;
+      }
+    </style>
+  </head>
+
+  <body class="bg-gray-100 text-gray-800 min-h-screen flex flex-col">
+    <header class="border-b bg-white shadow-sm sticky top-0 z-10">
+      <div
+        class="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between"
+      >
+        <div>
+          <h1
+            id="plant-title"
+            class="text-2xl font-bold tracking-tight text-gray-900"
+          >
+            ---
+          </h1>
+          <p class="text-sm text-gray-600">プラント稼働状況詳細</p>
+        </div>
+        <a
+          href="/"
+          class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white hover:bg-gray-100 transition-colors"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m12 19-7-7 7-7" />
+            <path d="M19 12H5" />
+          </svg>
+          ダッシュボードに戻る
+        </a>
+      </div>
+    </header>
+
+    <main
+      class="flex-grow w-full max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8 py-5"
+    >
+      <div class="bg-white rounded-xl shadow-lg p-4 h-full flex flex-col">
+        <div
+          class="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4"
+        >
+          <h2 class="text-lg font-semibold">稼働履歴グラフ</h2>
+          <div class="flex items-center gap-3 w-full sm:w-80">
+            <input
+              type="range"
+              id="range-slider"
+              min="0"
+              max="30"
+              value="24"
+              class="w-full"
+            />
+            <span
+              id="range-value-display"
+              class="font-semibold text-indigo-600 text-center w-24 bg-indigo-50 p-2 rounded-lg text-sm"
+              >1 日</span
+            >
+          </div>
+        </div>
+
+        <div
+          id="chart-container"
+          class="relative flex-grow w-full min-h-[65vh]"
+        >
+          <div
+            id="loading-chart"
+            class="absolute inset-0 flex items-center justify-center bg-white/80 z-10 backdrop-blur-sm"
+          >
+            <div class="text-center">
+              <svg
+                class="animate-spin h-8 w-8 text-indigo-600 mx-auto"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
+                <path
+                  class="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              <p class="mt-2 font-medium text-gray-600">
+                グラフを読み込み中...
+              </p>
+            </div>
+          </div>
+          <canvas id="detail-chart"></canvas>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const API_HISTORY_URL_BASE = "/api/plant";
+      let detailChartInstance = null;
+      let currentModel = "";
+
+      const colorPalette = [
+        "#ef4444",
+        "#3b82f6",
+        "#f97316",
+        "#8b5cf6",
+        "#10b981",
+        "#06b6d4",
+        "#d946ef",
+      ];
+
+      function inferUnitFromField(field) {
+        if (!field) return "";
+        const f = field.toLowerCase();
+        if (f.includes("温度") || f.includes("℃") || f.includes("temp"))
+          return "°C";
+        if (f.includes("開度") || f.includes("%") || f.includes("valve"))
+          return "%";
+        return "";
+      }
+
+      function debounce(func, delay) {
+        let timeout;
+        return function (...args) {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => func.apply(this, args), delay);
+        };
+      }
+
+      async function renderDetailChart(model, hours) {
+        const canvasEl = document.getElementById("detail-chart");
+        if (!canvasEl) return;
+        const ctx = canvasEl.getContext("2d");
+        const loadingEl = document.getElementById("loading-chart");
+        loadingEl.style.display = "flex";
+
+        try {
+          const response = await fetch(
+            `${API_HISTORY_URL_BASE}/${encodeURIComponent(
+              model
+            )}/history?range_hours=${hours}`
+          );
+          if (!response.ok) throw new Error("Failed to fetch history");
+          const historyData = await response.json();
+
+          let colorIndex = 0;
+          const axisUnit = { y_temp: "", y_valve: "" };
+
+          const GAP_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 ชั่วโมง
+
+          const datasets = Object.entries(historyData || {})
+            .map(([sensorName, records]) => {
+              if (!records || records.length === 0) return null;
+
+              // safety: ensure time-sorted
+              records.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+              const fieldName = records[0].field || "";
+              const recordUnit = records[0].unit || "";
+              const isTemperature =
+                fieldName.includes("温度") || recordUnit.includes("C");
+              const yAxisID = isTemperature ? "y_temp" : "y_valve";
+              const unit = recordUnit || inferUnitFromField(fieldName);
+              if (!axisUnit[yAxisID] && unit) axisUnit[yAxisID] = unit;
+
+              // build data with null separators for gaps > threshold
+              const data = [];
+              for (let i = 0; i < records.length; i++) {
+                const r = records[i];
+                data.push({ x: r.time, y: r.value });
+
+                if (i < records.length - 1) {
+                  const t1 = new Date(r.time).getTime();
+                  const t2 = new Date(records[i + 1].time).getTime();
+                  if (t2 - t1 > GAP_THRESHOLD_MS) {
+                    // แทรกจุด null ระหว่างช่วงว่างเพื่อหยุดการเชื่อมเส้น
+                    // เลือกเวลาเล็กน้อยหลัง t1 เป็น x ของ null
+                    data.push({ x: new Date(t1 + 1).toISOString(), y: null });
+                  }
+                }
+              }
+
+              const color = colorPalette[colorIndex % colorPalette.length];
+              colorIndex++;
+
+              return {
+                label: sensorName,
+                data,
+                borderColor: color,
+                backgroundColor: color + "33",
+                yAxisID,
+                tension: 0.2,
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHitRadius: 10,
+                _unit: unit,
+                // กำหนดที่ระดับ dataset ก็ได้
+                spanGaps: false,
+              };
+            })
+            .filter(Boolean);
+
+          if (!axisUnit.y_temp) axisUnit.y_temp = "°C";
+          if (!axisUnit.y_valve) axisUnit.y_valve = "%";
+
+          if (detailChartInstance) {
+            detailChartInstance.destroy();
+          }
+
+          const timeUnit = hours > 48 ? "day" : "hour";
+          const displayFormats =
+            hours > 48 ? { day: "MM/dd" } : { hour: "HH:mm" };
+          const now = new Date();
+          const startTime = new Date(now.getTime() - hours * 60 * 60 * 1000);
+
+          detailChartInstance = new Chart(ctx, {
+            type: "line",
+            data: { datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: { mode: "index", intersect: false },
+              elements: {
+                line: {
+                  // ป้องกันการเชื่อมเส้นข้ามค่า null
+                  spanGaps: false,
+                },
+              },
+              scales: {
+                x: {
+                  type: "time",
+                  time: { unit: timeUnit, displayFormats: displayFormats },
+                  title: { display: true, text: "時刻" },
+                  min: startTime,
+                  max: now,
+                },
+                y_temp: {
+                  type: "linear",
+                  position: "left",
+                  title: {
+                    display: true,
+                    text: `温度 (${axisUnit.y_temp})`,
+                    font: { size: 14 },
+                  },
+                  ticks: { color: "#c026d3" },
+                },
+                y_valve: {
+                  type: "linear",
+                  position: "right",
+                  title: {
+                    display: true,
+                    text: `開度 (${axisUnit.y_valve})`,
+                    font: { size: 14 },
+                  },
+                  grid: { drawOnChartArea: false },
+                  ticks: { color: "#1d4ed8" },
+                },
+              },
+              plugins: {
+                legend: {
+                  position: "bottom",
+                  labels: { boxWidth: 15, font: { size: 12 } },
+                },
+                tooltip: {
+                  bodySpacing: 5,
+                  titleFont: { size: 16 },
+                  callbacks: {
+                    label: (context) => {
+                      const ds = context.dataset;
+                      const unit =
+                        ds._unit ||
+                        (ds.yAxisID === "y_temp"
+                          ? axisUnit.y_temp
+                          : axisUnit.y_valve) ||
+                        "";
+                      return (
+                        ds.label +
+                        ": " +
+                        (unit
+                          ? `${context.formattedValue} ${unit}`
+                          : context.formattedValue)
+                      );
+                    },
+                  },
+                },
+              },
+            },
+          });
+        } catch (error) {
+          console.error(`Error rendering chart for ${model}:`, error);
+          ctx.font = "16px sans-serif";
+          ctx.fillStyle = "#ef4444";
+          ctx.textAlign = "center";
+          ctx.fillText(
+            "グラフの読み込みに失敗しました",
+            canvasEl.width / 2,
+            canvasEl.height / 2
+          );
+        } finally {
+          loadingEl.style.display = "none";
+        }
+      }
+
+      const debouncedRender = debounce(renderDetailChart, 400);
+
+      // ✨ New helper function to translate slider step to hours and display text ✨
+      function getValuesFromStep(step) {
+        let hours;
+        let displayText;
+
+        if (step <= 23) {
+          // Steps 0-23 are for 1-24 hours
+          hours = step + 1;
+          displayText = `${hours} 時間`;
+        } else {
+          // Steps 24-30 are for 1-7 days
+          const days = step - 23;
+          hours = days * 24;
+          displayText = `${days} 日`;
+        }
+        return { hours, displayText };
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        currentModel = urlParams.get("model");
+
+        const rangeSlider = document.getElementById("range-slider");
+        const rangeValueDisplay = document.getElementById(
+          "range-value-display"
+        );
+
+        if (!currentModel) {
+          document.getElementById("plant-title").textContent =
+            "エラー: 機種が指定されていません";
+          document.getElementById("chart-container").innerHTML = "";
+          return;
+        }
+
+        const modelNameDecoded = decodeURIComponent(currentModel);
+        document.getElementById(
+          "plant-title"
+        ).textContent = `${modelNameDecoded}`;
+        document.title = `${modelNameDecoded} | 詳細グラフ`;
+
+        rangeSlider.addEventListener("input", () => {
+          const step = parseInt(rangeSlider.value, 10);
+          const { hours, displayText } = getValuesFromStep(step);
+
+          rangeValueDisplay.textContent = displayText;
+          debouncedRender(currentModel, hours);
+        });
+
+        // Set initial state for 1 Day (step 24)
+        const initialStep = 24;
+        rangeSlider.value = initialStep;
+        const { hours: initialHours, displayText: initialDisplayText } =
+          getValuesFromStep(initialStep);
+        rangeValueDisplay.textContent = initialDisplayText;
+        renderDetailChart(currentModel, initialHours);
+      });
+    </script>
+  </body>
+</html>

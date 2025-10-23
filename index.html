@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>監視ダッシュボード | 株式会社キンセイ産業</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        font-size: 16px;
+      }
+      body {
+        font-family: "Inter", "Noto Sans JP", sans-serif;
+      }
+      @keyframes fire-glow {
+        0%,
+        100% {
+          box-shadow: 0 0 8px rgba(239, 68, 68, 0.4),
+            0 0 15px rgba(239, 68, 68, 0.2);
+        }
+        50% {
+          box-shadow: 0 0 12px rgba(239, 68, 68, 0.6),
+            0 0 20px rgba(239, 68, 68, 0.4);
+        }
+      }
+      .fire-effect {
+        animation: fire-glow 2s ease-in-out infinite;
+      }
+      @keyframes ice-glow {
+        0%,
+        100% {
+          box-shadow: 0 0 8px rgba(59, 130, 246, 0.4),
+            0 0 15px rgba(59, 130, 246, 0.2);
+        }
+        50% {
+          box-shadow: 0 0 12px rgba(59, 130, 246, 0.6),
+            0 0 20px rgba(59, 130, 246, 0.4);
+        }
+      }
+      .ice-effect {
+        animation: ice-glow 2.5s ease-in-out infinite;
+      }
+      /* --- START: เพิ่ม CSS สำหรับ Green Glow --- */
+      @keyframes green-glow {
+        0%,
+        100% {
+          box-shadow: 0 0 8px rgba(34, 197, 94, 0.4),
+            0 0 15px rgba(34, 197, 94, 0.2);
+        }
+        50% {
+          box-shadow: 0 0 12px rgba(34, 197, 94, 0.6),
+            0 0 20px rgba(34, 197, 94, 0.4);
+        }
+      }
+      .green-effect {
+        animation: green-glow 2.5s ease-in-out infinite;
+      }
+      /* --- END: เพิ่ม CSS --- */
+    </style>
+  </head>
+
+  <body class="bg-gray-100 text-gray-800 min-h-screen flex flex-col">
+    <header class="border-b bg-white shadow-sm sticky top-0 z-10">
+      <div
+        class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-4"
+      >
+        <a
+          href="/"
+          class="flex items-center gap-3 rounded-lg p-1 -ml-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          <img
+            src="/static/brand/logo.png"
+            alt="株式会社キンセイ産業 ロゴ"
+            class="h-10 w-auto"
+            onerror="this.onerror=null;this.src='https://placehold.co/100x40/e2e8f0/64748b?text=Logo';"
+          />
+          <div>
+            <h1 class="text-xl font-bold tracking-tight text-gray-900">
+              株式会社キンセイ産業
+            </h1>
+            <p class="text-sm text-gray-600">プラント稼働状況一覧</p>
+          </div>
+        </a>
+
+        <div class="flex items-center gap-3">
+          <div class="text-sm text-gray-500 text-right hidden md:block">
+            <p>最終更新 (UI):</p>
+            <p id="last-updated-time" class="font-medium">---</p>
+          </div>
+          <button
+            id="manual-refresh-btn"
+            class="inline-flex items-center px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-100 text-sm font-medium"
+          >
+            <svg
+              id="refresh-icon"
+              xmlns="http://www.w3.org/2000/svg"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="mr-2"
+            >
+              <path
+                d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+              ></path>
+              <path d="M21 3v5h-5"></path>
+              <path
+                d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
+              ></path>
+              <path d="M3 21v-5h5"></path>
+            </svg>
+            更新
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main
+      id="main-content"
+      class="flex-grow w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-4"
+    >
+      <div class="flex items-center justify-between gap-4 mb-4">
+        <div class="flex items-center gap-2">
+          <div class="relative">
+            <input
+              id="plant-search-input"
+              type="text"
+              placeholder="検索: 型式 / 客先名 / 都道府県"
+              class="w-64 pl-3 pr-10 py-1.5 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <button
+              id="clear-search-btn"
+              title="クリア"
+              class="absolute right-0 top-0 mt-1 mr-1 px-2 py-1 text-gray-500 hover:text-gray-800 hidden"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="loading-state" class="text-center py-20">
+        <svg
+          class="animate-spin h-8 w-8 text-indigo-600 mx-auto"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+        >
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="4"
+          ></circle>
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          ></path>
+        </svg>
+        <p class="mt-3 text-base font-medium text-gray-600">
+          データを読み込み中...
+        </p>
+      </div>
+
+      <div id="plants-with-sensors-container"></div>
+
+      <div id="other-plants-section" class="mt-8 border-t pt-4 border-gray-300">
+        <h2
+          id="other-plants-title"
+          class="text-2xl font-bold mb-4 text-gray-700 hidden"
+        >
+          その他のプラント
+        </h2>
+        <div
+          id="other-plants-container"
+          class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+        ></div>
+      </div>
+    </main>
+
+    <script>
+      const API_OVERVIEW_URL = "/api/plants/overview";
+      const API_HISTORY_URL_BASE = "/api/plant";
+      const REFRESH_INTERVAL = 60 * 1000;
+
+      window.plantCharts = {};
+      window.allPlants = []; // store all data for client-side search
+
+      function toSafeId(plant) {
+        // Create a unique ID based on model, customer, and province (the composite key used in the backend)
+        const uniqueString = `${plant.model || ""}-${plant.customer || ""}-${
+          plant.province || ""
+        }`;
+        return String(uniqueString)
+          .replace(/\s+/g, "-")
+          .replace(/[^A-Za-z0-9\-_]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "");
+      }
+
+      function formatDateTime(isoString) {
+        if (!isoString) return "N/A";
+        try {
+          const date = new Date(isoString);
+          return `${date.getFullYear()}年${(date.getMonth() + 1)
+            .toString()
+            .padStart(2, "0")}月${date
+            .getDate()
+            .toString()
+            .padStart(2, "0")}日 ${date
+            .getHours()
+            .toString()
+            .padStart(2, "0")}:${date
+            .getMinutes()
+            .toString()
+            .padStart(2, "0")}`;
+        } catch (e) {
+          return "Invalid Date";
+        }
+      }
+
+      function inferUnitFromKey(keyName) {
+        if (!keyName) return "";
+        const k = String(keyName).toLowerCase();
+        if (k.includes("℃") || k.includes("温度") || k.includes("temp"))
+          return "°C";
+        if (
+          k.includes("%") ||
+          k.includes("開度") ||
+          k.includes("valve") ||
+          k.includes("o2")
+        )
+          return "%";
+        if (k.includes("ppm")) return "ppm";
+        return "";
+      }
+
+      function getStatusIndicator(status) {
+        if (!status) return `<span class="text-gray-500">-</span>`;
+        const colorMap = {
+          AUTO: "bg-green-500",
+          "投入・灰出": "bg-yellow-500",
+          冷却: "bg-blue-500",
+        };
+        const colorClass = colorMap[status] || "bg-gray-400";
+        return `<div class="flex items-center text-sm"><span class="h-2.5 w-2.5 rounded-full ${colorClass} mr-2"></span><span>${status}</span></div>`;
+      }
+
+      // -------------------- createSensorCard (Unchanged) --------------------
+      function createSensorCard(name, data) {
+        if (!data)
+          return `<div class="border border-transparent rounded-lg p-2 invisible h-[100px]"></div>`;
+
+        let tempVal, kadoVal, statusVal;
+        for (const [k, v] of Object.entries(data)) {
+          const unit =
+            v && typeof v === "object" && v.unit ? v.unit : inferUnitFromKey(k);
+          const val = v && typeof v === "object" && "value" in v ? v.value : v;
+          if (k.includes("温度") || k.toLowerCase().includes("temp"))
+            tempVal = { value: Number(val), unit };
+          if (
+            k.includes("開度") ||
+            k.includes("%") ||
+            k.toLowerCase().includes("valve")
+          )
+            kadoVal = { value: val, unit };
+          if (k.includes("運転状況") || k.includes("status")) statusVal = val;
+        }
+
+        // fallback keys
+        if (!tempVal) {
+          const maybeTempKey = Object.keys(data).find(
+            (k) => k.includes("温度") || k.includes("℃")
+          );
+          if (maybeTempKey) {
+            const v = data[maybeTempKey];
+            tempVal = {
+              value: v && v.value != null ? v.value : v,
+              unit: inferUnitFromKey(maybeTempKey) || "°C",
+            };
+          }
+        }
+        if (!kadoVal) {
+          const maybeKKey = Object.keys(data).find(
+            (k) => k.includes("開度") || k.includes("%")
+          );
+          if (maybeKKey) {
+            const v = data[maybeKKey];
+            kadoVal = {
+              value: v && v.value != null ? v.value : v,
+              unit: inferUnitFromKey(maybeKKey) || "%",
+            };
+          }
+        }
+
+        // --- START: ตรรกะ Glow ที่แก้ไข ---
+        let effectClass = "",
+          bgClass = "bg-gray-50";
+        const normalizedName = name || "";
+
+        if (normalizedName.includes("乾溜ガス化炉")) {
+          // --- 乾溜ガス化炉 (Gasification Furnace) ---
+          // 運転状況 (statusVal) に基づく
+          if (statusVal === "AUTO") {
+            effectClass = "fire-effect"; // 赤
+            bgClass = "bg-red-50";
+          } else if (statusVal === "冷却") {
+            effectClass = "ice-effect"; // 青
+            bgClass = "bg-blue-50";
+          } else if (statusVal === "投入・灰出") {
+            // エフェクトなし
+          } else {
+            // statusVal がない場合のフォールバック (元のロジック)
+            if (
+              tempVal &&
+              tempVal.value !== undefined &&
+              Number(tempVal.value) > 50
+            ) {
+              effectClass = "fire-effect";
+              bgClass = "bg-red-50";
+            }
+          }
+        } else if (normalizedName.includes("乾溜空気弁")) {
+          // --- 乾溜空気弁 (Air Valve) ---
+          // 開度 (kadoVal) に基づく
+          if (kadoVal && Number(kadoVal.value) > 0) {
+            effectClass = "green-effect"; // 新しい緑エフェクト
+            bgClass = "bg-green-50";
+          }
+        } else {
+          // --- その他のカード (例: 燃焼炉) ---
+          // 元の温度ロジックのみを適用
+          if (
+            tempVal &&
+            tempVal.value !== undefined &&
+            Number(tempVal.value) > 50
+          ) {
+            effectClass = "fire-effect";
+            bgClass = "bg-red-50";
+          }
+        }
+        // --- END: ตรรกะ Glow ที่แก้ไข ---
+
+        let dataRows = "";
+        if (statusVal !== undefined)
+          dataRows += `<div class="flex justify-between items-center"><dt class="text-gray-500">状況</dt><dd class="font-medium">${getStatusIndicator(
+            statusVal
+          )}</dd></div>`;
+        if (tempVal && tempVal.value !== undefined)
+          dataRows += `<div class="flex justify-between items-center"><dt class="text-gray-500">温度</dt><dd class="font-semibold text-red-600">${Number(
+            tempVal.value
+          ).toFixed(1)}<span class="text-xs text-gray-500 ml-1">${
+            tempVal.unit || "°C"
+          }</span></dd></div>`;
+        if (kadoVal && kadoVal.value !== undefined)
+          dataRows += `<div class="flex justify-between items-center"><dt class="text-gray-500">開度</dt><dd class="font-semibold text-blue-600">${
+            kadoVal.value
+          }<span class="text-xs text-gray-500 ml-1">${
+            kadoVal.unit || "%"
+          }</span></dd></div>`;
+
+        return `<div class="${bgClass} border border-gray-200 rounded-lg p-2 ${effectClass} transition-all duration-300 h-[100px]">
+                    <h3 class="font-bold text-base text-gray-800">${name}</h3>
+                    <dl class="mt-1.5 space-y-1 text-sm">${dataRows}</dl>
+                  </div>`;
+      }
+
+      // -------------------- createPlantCardContent (For plants with sensors) --------------------
+      function createPlantCardContent(plant, displayLastUpdatedISO) {
+        const sensors = plant.sensors || {};
+        const gasificationFurnaces = Object.fromEntries(
+          Object.entries(sensors).filter(([name]) =>
+            name.includes("乾溜ガス化炉")
+          )
+        );
+        const airValves = Object.fromEntries(
+          Object.entries(sensors).filter(([name]) =>
+            name.includes("乾溜空気弁")
+          )
+        );
+        const combustionFurnace = Object.entries(sensors).find(
+          ([name]) => name === "燃焼炉"
+        );
+        const exhaustGas = Object.entries(sensors).find(
+          ([name]) => name === "排ガス濃度"
+        );
+
+        const suffixes = new Set();
+        [
+          ...Object.keys(gasificationFurnaces),
+          ...Object.keys(airValves),
+        ].forEach((name) => {
+          const suffix = name.slice(-1);
+          if (suffix >= "A" && suffix <= "Z") suffixes.add(suffix);
+        });
+        const sortedSuffixes = Array.from(suffixes).sort();
+
+        let col2HTML = sortedSuffixes
+          .map((suffix) =>
+            createSensorCard(
+              `乾溜ガス化炉${suffix}`,
+              gasificationFurnaces[`乾溜ガス化炉${suffix}`]
+            )
+          )
+          .join("");
+        let col3HTML = sortedSuffixes
+          .map((suffix) =>
+            createSensorCard(
+              `乾溜空気弁${suffix}`,
+              airValves[`乾溜空気弁${suffix}`]
+            )
+          )
+          .join("");
+
+        let col4HTML = "";
+        if (combustionFurnace)
+          col4HTML += createSensorCard(
+            combustionFurnace[0],
+            combustionFurnace[1]
+          );
+        if (exhaustGas) {
+          const name = exhaustGas[0],
+            data = exhaustGas[1];
+          const coKey = Object.keys(data).find((k) => k.includes("CO"));
+          const o2Key = Object.keys(data).find(
+            (k) =>
+              k.includes("O2") ||
+              k.includes("O₂") ||
+              k.toLowerCase().includes("o2")
+          );
+          let dataRows = "";
+          if (coKey && data[coKey] !== undefined)
+            dataRows += `<div class="flex justify-between items-center"><dt class="text-gray-500">CO濃度</dt><dd class="font-semibold">${
+              data[coKey] && data[coKey].value != null
+                ? data[coKey].value
+                : data[coKey]
+            }<span class="text-xs text-gray-500 ml-1">ppm</span></dd></div>`;
+          if (o2Key && data[o2Key] !== undefined)
+            dataRows += `<div class="flex justify-between items-center"><dt class="text-gray-500">O2濃度</dt><dd class="font-semibold">${
+              data[o2Key] && data[o2Key].value != null
+                ? data[o2Key].value
+                : data[o2Key]
+            }<span class="text-xs text-gray-500 ml-1">%</span></dd></div>`;
+          col4HTML += `<div class="bg-gray-50 border border-gray-200 rounded-lg p-2 ${
+            combustionFurnace ? "mt-3" : ""
+          }"><h3 class="font-bold text-base text-gray-800">${name}</h3><dl class="mt-1.5 space-y-1 text-sm">${dataRows}</dl></div>`;
+        }
+
+        const safeId = toSafeId(plant); // Use the new unique ID function
+
+        return `
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+        <div class="lg:col-span-1">
+          <div class="flex flex-col items-center lg:items-start text-center lg:text-left w-full">
+            <img src="${
+              plant.image_url ||
+              "https://placehold.co/300x225/e2e8f0/64748b?text=No+Image"
+            }" alt="${plant.model}"
+              class="w-full max-w-xs lg:max-w-full h-auto object-cover rounded-lg shadow-md mb-3"
+              onerror="this.onerror=null;this.src='https://placehold.co/300x225/e2e8f0/64748b?text=Image+Error';" />
+            <h2 class="text-xl font-bold text-gray-900">${
+              plant.customer || ""
+            }</h2>
+            <p class="text-base text-gray-600">${plant.model}</p>
+            <p class="text-sm text-gray-500">${
+              plant.province ? plant.province : ""
+            }</p>
+            <p class="text-xs text-gray-500 mt-2"><strong>最終更新:</strong> ${formatDateTime(
+              displayLastUpdatedISO
+            )}</p>
+          </div>
+        </div>
+
+        <div class="lg:col-span-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 w-full">
+          <div class="space-y-3">${col2HTML}</div>
+          <div class="space-y-3">${col3HTML}</div>
+          <div class="space-y-3">${col4HTML}</div>
+
+          <div class="bg-white border border-gray-200 rounded-lg p-2 h-full min-h-[300px] flex flex-col">
+            <div class="flex justify-between items-center mb-2">
+              <h3 class="font-bold text-base text-gray-800">過去6時間の推移</h3>
+              <a href="/detail.html?model=${encodeURIComponent(
+                plant.model
+              )}" target="_blank" class="inline-flex items-center p-1 rounded-md hover:bg-gray-200 text-gray-500 hover:text-gray-800 transition-colors" title="フルスクリーンで表示">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+                </svg>
+              </a>
+            </div>
+            <div class="relative w-full flex-grow" style="height:260px;">
+              <canvas id="chart-${safeId}" class="w-full h-full"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+      }
+
+      // -------------------- NEW: createOtherPlantCardContent (For plants without sensors) --------------------
+      function createOtherPlantCardContent(plant) {
+        return `
+          <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-3 text-center transition-shadow duration-200 hover:shadow-lg">
+            <img src="${
+              plant.image_url ||
+              "https://placehold.co/300x225/e2e8f0/64748b?text=No+Image"
+            }" alt="${plant.model}"
+              class="w-full h-auto object-cover rounded-md mb-2 max-h-32 mx-auto"
+              onerror="this.onerror=null;this.src='https://placehold.co/300x225/e2e8f0/64748b?text=Image+Error';" />
+            <h3 class="text-lg font-bold text-gray-900">${
+              plant.customer || "客先名不明"
+            }</h3>
+            <p class="text-sm text-gray-600">${plant.model || "-"}</p>
+            <p class="text-xs text-gray-500">${
+              plant.province ? plant.province : ""
+            }</p>
+          </div>
+        `;
+      }
+
+      const colorPalette = [
+        "#ef4444",
+        "#f97316",
+        "#eab308",
+        "#84cc16",
+        "#22c55e",
+        "#14b8a6",
+        "#06b6d4",
+        "#3b82f6",
+        "#8b5cf6",
+        "#d946ef",
+      ];
+
+      // --- MODIFIED: renderHistoryChart now takes the entire plant object ---
+      async function renderHistoryChart(plant) {
+        const safeId = toSafeId(plant);
+        const canvasEl = document.getElementById(`chart-${safeId}`);
+        if (!canvasEl) return;
+        const ctx = canvasEl.getContext("2d");
+
+        try {
+          const response = await fetch(
+            // NOTE: The backend API must be able to handle unique identification based on model/customer/province if model is not unique
+            // For now, keeping the original call based on model, assuming the backend can still differentiate.
+            `${API_HISTORY_URL_BASE}/${encodeURIComponent(
+              plant.model
+            )}/history?range_hours=6`
+          );
+          if (!response.ok) throw new Error("Failed to fetch history");
+          const historyData = await response.json();
+
+          let colorIndex = 0;
+          const axisUnit = { y_temp: "", y_valve: "" };
+          const datasets = Object.entries(historyData || {})
+            .map(([sensorName, records]) => {
+              if (!records || records.length === 0) return null;
+              const fieldName = records[0].field || "";
+              const recordUnit = records[0].unit || "";
+              const isTemp =
+                fieldName.includes("温度") ||
+                fieldName.toLowerCase().includes("temp");
+              const yAxisID = isTemp ? "y_temp" : "y_valve";
+              const unit = recordUnit || inferUnitFromKey(fieldName);
+              if (!axisUnit[yAxisID] && unit) axisUnit[yAxisID] = unit;
+              const data = records.map((r) => ({ x: r.time, y: r.value }));
+              const color = colorPalette[colorIndex % colorPalette.length];
+              colorIndex++;
+              return {
+                label: sensorName,
+                data,
+                borderColor: color,
+                backgroundColor: color + "33",
+                yAxisID,
+                tension: 0.1,
+                borderWidth: 2,
+                pointRadius: 0,
+                _unit: unit,
+              };
+            })
+            .filter(Boolean);
+
+          if (!axisUnit.y_temp) axisUnit.y_temp = "°C";
+          if (!axisUnit.y_valve) axisUnit.y_valve = "%";
+
+          if (window.plantCharts[safeId]) {
+            try {
+              window.plantCharts[safeId].destroy();
+            } catch (e) {}
+            delete window.plantCharts[safeId];
+          }
+
+          window.plantCharts[safeId] = new Chart(ctx, {
+            type: "line",
+            data: { datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: { mode: "index", intersect: false },
+              scales: {
+                x: {
+                  type: "time",
+                  time: { unit: "hour", displayFormats: { hour: "HH:mm" } },
+                  title: { display: true, text: "時刻" },
+                },
+                y_temp: {
+                  type: "linear",
+                  position: "left",
+                  title: { display: true, text: `温度 (${axisUnit.y_temp})` },
+                  ticks: { color: "#c026d3", callback: (v) => `${v}` },
+                },
+                y_valve: {
+                  type: "linear",
+                  position: "right",
+                  title: { display: true, text: `開度 (${axisUnit.y_valve})` },
+                  grid: { drawOnChartArea: false },
+                  ticks: { color: "#1d4ed8", callback: (v) => `${v}` },
+                },
+              },
+              plugins: {
+                legend: {
+                  position: "bottom",
+                  labels: { boxWidth: 12, font: { size: 10 } },
+                },
+                tooltip: {
+                  bodySpacing: 4,
+                  titleFont: { size: 14 },
+                  callbacks: {
+                    label: (ctx) => {
+                      const ds = ctx.dataset;
+                      const unit =
+                        ds._unit ||
+                        (ds.yAxisID === "y_temp"
+                          ? axisUnit.y_temp
+                          : axisUnit.y_valve) ||
+                        "";
+                      return (
+                        ds.label +
+                        ": " +
+                        (unit
+                          ? `${ctx.formattedValue} ${unit}`
+                          : ctx.formattedValue)
+                      );
+                    },
+                  },
+                },
+              },
+            },
+          });
+        } catch (error) {
+          console.error(`Error rendering chart for ${plant.model}:`, error);
+          if (ctx && canvasEl) {
+            try {
+              ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+              ctx.font = "14px sans-serif";
+              ctx.fillStyle = "#ef4444";
+              ctx.textAlign = "center";
+              ctx.fillText(
+                "グラフの読み込みに失敗しました",
+                canvasEl.width / 2,
+                canvasEl.height / 2
+              );
+            } catch (e) {}
+          }
+        }
+      }
+
+      function debounce(fn, wait = 220) {
+        let t;
+        return (...args) => {
+          clearTimeout(t);
+          t = setTimeout(() => fn(...args), wait);
+        };
+      }
+      function normalizeStr(s) {
+        return (s || "").toString().trim().toLowerCase();
+      }
+      function plantMatchesQuery(plant, query) {
+        if (!query) return true;
+        const q = normalizeStr(query);
+        if (normalizeStr(plant.model).includes(q)) return true;
+        if (normalizeStr(plant.customer).includes(q)) return true;
+        if (normalizeStr(plant.province).includes(q)) return true;
+        return false;
+      }
+
+      // -------------------- NEW: Split plants function --------------------
+      function splitPlants(plants) {
+        const withSensors = [];
+        const otherPlants = [];
+        plants.forEach((plant) => {
+          // Check if 'sensors' is present and is not an empty object/null
+          const hasSensors =
+            plant.sensors && Object.keys(plant.sensors).length > 0; // The key check
+
+          if (hasSensors) {
+            withSensors.push(plant);
+          } else {
+            otherPlants.push(plant);
+          }
+        });
+        return { withSensors, otherPlants };
+      }
+      // -------------------- END NEW --------------------
+
+      // -------------------- MODIFIED: updatePlantData --------------------
+      function updatePlantData(plantsWithSensors) {
+        const mainContainer = document.getElementById(
+          "plants-with-sensors-container"
+        );
+        const nowISO = new Date().toISOString();
+        // Use unique ID (based on composite key) for update check
+        const newPlantIds = new Set(plantsWithSensors.map(toSafeId));
+
+        // Step 1: Update existing cards and add new ones
+        plantsWithSensors.forEach((plant) => {
+          const safeId = toSafeId(plant);
+          const cardId = `plant-card-${safeId}`;
+          const existingCard = document.getElementById(cardId);
+          const displayLastUpdatedISO = plant.last_updated || nowISO;
+          const newInnerHTML = createPlantCardContent(
+            plant,
+            displayLastUpdatedISO
+          );
+
+          if (existingCard) {
+            if (existingCard.innerHTML !== newInnerHTML) {
+              existingCard.innerHTML = newInnerHTML;
+            }
+            renderHistoryChart(plant); // Pass the whole plant object
+          } else {
+            const plantCard = document.createElement("div");
+            plantCard.id = cardId;
+            plantCard.dataset.plantId = safeId; // Use unique ID for lookup
+            plantCard.className = "bg-white rounded-xl shadow-md p-3 mb-4";
+            plantCard.innerHTML = newInnerHTML;
+            mainContainer.appendChild(plantCard);
+            setTimeout(() => renderHistoryChart(plant), 50); // Pass the whole plant object
+          }
+        });
+
+        // Step 2: Remove cards that are no longer in the new data
+        const currentCards = mainContainer.querySelectorAll("[data-plant-id]");
+        currentCards.forEach((card) => {
+          const plantId = card.dataset.plantId;
+          if (!newPlantIds.has(plantId)) {
+            const chartId = `chart-${plantId}`;
+            if (window.plantCharts[chartId]) {
+              try {
+                window.plantCharts[chartId].destroy();
+              } catch (e) {}
+              delete window.plantCharts[chartId];
+            }
+            card.remove();
+          }
+        });
+
+        // Update UI timestamp (unchanged)
+        const lastUpdatedEl = document.getElementById("last-updated-time");
+        if (lastUpdatedEl) {
+          const now = new Date();
+          lastUpdatedEl.textContent = now.toLocaleTimeString("ja-JP", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        }
+      }
+      // -------------------- END MODIFIED --------------------
+
+      // -------------------- NEW: renderOtherPlants --------------------
+      function renderOtherPlants(plants) {
+        const container = document.getElementById("other-plants-container");
+        const title = document.getElementById("other-plants-title");
+        container.innerHTML = ""; // Clear existing cards
+
+        if (plants.length === 0) {
+          if (title) title.classList.add("hidden");
+          return;
+        }
+
+        if (title) title.classList.remove("hidden");
+
+        plants.forEach((plant) => {
+          const plantCard = document.createElement("div");
+          plantCard.dataset.plantId = toSafeId(plant); // Use unique ID for lookup
+          plantCard.className = "plant-other-card";
+          plantCard.innerHTML = createOtherPlantCardContent(plant);
+          container.appendChild(plantCard);
+        });
+      }
+      // -------------------- END NEW --------------------
+
+      // -------------------- MODIFIED: renderPlants --------------------
+      function renderPlants(plantsWithSensors) {
+        // This function is for full re-render of the main section (e.g., during search)
+        const mainContainer = document.getElementById(
+          "plants-with-sensors-container"
+        );
+        mainContainer.innerHTML = ""; // Clear existing cards
+
+        // Clear charts for removed plants (optional cleanup)
+        Object.keys(window.plantCharts).forEach((chartId) => {
+          if (
+            !plantsWithSensors.find((p) => `chart-${toSafeId(p)}` === chartId)
+          ) {
+            try {
+              window.plantCharts[chartId].destroy();
+            } catch (e) {}
+            delete window.plantCharts[chartId];
+          }
+        });
+
+        const nowISO = new Date().toISOString();
+        plantsWithSensors.forEach((plant) => {
+          const safeId = toSafeId(plant);
+          const cardId = `plant-card-${safeId}`;
+          const displayLastUpdatedISO = plant.last_updated || nowISO;
+
+          const plantCard = document.createElement("div");
+          plantCard.id = cardId;
+          plantCard.dataset.plantId = safeId; // Use unique ID for lookup
+          plantCard.className = "bg-white rounded-xl shadow-md p-3 mb-4";
+          plantCard.innerHTML = createPlantCardContent(
+            plant,
+            displayLastUpdatedISO
+          );
+          mainContainer.appendChild(plantCard);
+
+          setTimeout(() => renderHistoryChart(plant), 50);
+        });
+      }
+      // -------------------- END MODIFIED --------------------
+
+      // -------------------- MODIFIED: refreshData --------------------
+      async function refreshData() {
+        try {
+          const resp = await fetch(API_OVERVIEW_URL);
+          if (!resp.ok) return; // Fail silently on auto-refresh
+          const plants = await resp.json();
+          window.allPlants = plants || [];
+
+          // Split all plants into two groups
+          const { withSensors, otherPlants } = splitPlants(window.allPlants);
+
+          // IMPORTANT: Respect the current search filter during refresh
+          const searchInput = document.getElementById("plant-search-input");
+          const currentQuery = searchInput ? searchInput.value : "";
+
+          // Filter plants with sensors (main section)
+          const filteredPlantsWithSensors = withSensors.filter((p) =>
+            plantMatchesQuery(p, currentQuery)
+          );
+          // Filter 'other' plants
+          const filteredOtherPlants = otherPlants.filter((p) =>
+            plantMatchesQuery(p, currentQuery)
+          );
+
+          // Use the smart update function for the main section
+          updatePlantData(filteredPlantsWithSensors);
+
+          // Render the 'other plants' section
+          renderOtherPlants(filteredOtherPlants);
+        } catch (e) {
+          console.error("Auto-refresh failed:", e);
+        }
+      }
+      // -------------------- END MODIFIED --------------------
+
+      // -------------------- MODIFIED: initialLoad --------------------
+      async function initialLoad() {
+        const loadingState = document.getElementById("loading-state");
+        const plantsWithSensorsContainer = document.getElementById(
+          "plants-with-sensors-container"
+        );
+        const otherPlantsContainer = document.getElementById(
+          "other-plants-container"
+        );
+        if (loadingState) loadingState.style.display = "block";
+
+        // Clear all previous content
+        plantsWithSensorsContainer.innerHTML = "";
+        otherPlantsContainer.innerHTML = "";
+
+        try {
+          const resp = await fetch(API_OVERVIEW_URL);
+          if (!resp.ok) throw new Error(`HTTP error! status: ${resp.status}`);
+          const plants = await resp.json();
+          window.allPlants = plants || [];
+
+          // Split all plants into two groups
+          const { withSensors, otherPlants } = splitPlants(window.allPlants);
+
+          if (loadingState) loadingState.style.display = "none";
+
+          // Initial full render for both sections
+          renderPlants(withSensors); // Plants with sensors (main section)
+          renderOtherPlants(otherPlants); // Other plants (bottom section)
+        } catch (e) {
+          console.error("Initial load failed:", e);
+          if (loadingState) loadingState.style.display = "none";
+          // Find the main-content div to display error
+          const mainContent = document.getElementById("main-content");
+          mainContent.innerHTML += `<div class="text-center py-20 bg-red-50 rounded-lg"><h2 class="text-xl font-bold text-red-700">エラーが発生しました</h2><p class="mt-2 text-base text-red-600">データの取得に失敗しました。</p></div>`;
+        }
+      }
+      // -------------------- END MODIFIED --------------------
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const manualBtn = document.getElementById("manual-refresh-btn");
+        const refreshIcon = document.getElementById("refresh-icon");
+        if (manualBtn) {
+          manualBtn.addEventListener("click", () => {
+            if (refreshIcon) refreshIcon.classList.add("animate-spin");
+            initialLoad().then(() =>
+              setTimeout(
+                () =>
+                  refreshIcon && refreshIcon.classList.remove("animate-spin"),
+                400
+              )
+            );
+          });
+        }
+
+        initialLoad(); // First load
+        setInterval(refreshData, REFRESH_INTERVAL); // Use new refresh function for interval
+
+        const input = document.getElementById("plant-search-input");
+        const clearBtn = document.getElementById("clear-search-btn");
+        if (input) {
+          const onSearch = debounce(() => {
+            const q = input.value || "";
+            if (q && clearBtn) clearBtn.classList.remove("hidden");
+            else if (clearBtn) clearBtn.classList.add("hidden");
+
+            const { withSensors, otherPlants } = splitPlants(
+              window.allPlants || []
+            );
+
+            // Filter both lists
+            const filteredSensors = withSensors.filter((p) =>
+              plantMatchesQuery(p, q)
+            );
+            const filteredOthers = otherPlants.filter((p) =>
+              plantMatchesQuery(p, q)
+            );
+
+            // Re-render both sections with filtered lists
+            renderPlants(filteredSensors);
+            renderOtherPlants(filteredOthers);
+          }, 220);
+
+          input.addEventListener("input", onSearch);
+          input.addEventListener("keydown", (ev) => {
+            if (ev.key === "Escape") {
+              input.value = "";
+              if (clearBtn) clearBtn.classList.add("hidden");
+              const { withSensors, otherPlants } = splitPlants(
+                window.allPlants || []
+              );
+              renderPlants(withSensors); // Show all plants with sensors
+              renderOtherPlants(otherPlants); // Show all other plants
+            }
+          });
+
+          if (clearBtn) {
+            clearBtn.addEventListener("click", () => {
+              input.value = "";
+              clearBtn.classList.add("hidden");
+              const { withSensors, otherPlants } = splitPlants(
+                window.allPlants || []
+              );
+              renderPlants(withSensors); // Show all plants with sensors
+              renderOtherPlants(otherPlants); // Show all other plants
+              input.focus();
+            });
+          }
+        }
+      });
+    </script>
+  </body>
+</html>
